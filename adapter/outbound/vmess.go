@@ -195,7 +195,9 @@ func (v *Vmess) DialContext(ctx context.Context, metadata *C.Metadata, opts ...d
 		if err != nil {
 			return nil, err
 		}
-		defer safeConnClose(c, err)
+		defer func(c net.Conn) {
+			safeConnClose(c, err)
+		}(c)
 
 		c, err = v.client.StreamConn(c, parseVmessAddr(metadata))
 		if err != nil {
@@ -210,7 +212,9 @@ func (v *Vmess) DialContext(ctx context.Context, metadata *C.Metadata, opts ...d
 		return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
 	}
 	tcpKeepAlive(c)
-	defer safeConnClose(c, err)
+	defer func(c net.Conn) {
+		safeConnClose(c, err)
+	}(c)
 
 	c, err = v.StreamConn(c, metadata)
 	return NewConn(c, v), err
@@ -234,7 +238,9 @@ func (v *Vmess) ListenPacketContext(ctx context.Context, metadata *C.Metadata, o
 		if err != nil {
 			return nil, err
 		}
-		defer safeConnClose(c, err)
+		defer func(c net.Conn) {
+			safeConnClose(c, err)
+		}(c)
 
 		c, err = v.client.StreamConn(c, parseVmessAddr(metadata))
 	} else {
@@ -243,7 +249,9 @@ func (v *Vmess) ListenPacketContext(ctx context.Context, metadata *C.Metadata, o
 			return nil, fmt.Errorf("%s connect error: %s", v.addr, err.Error())
 		}
 		tcpKeepAlive(c)
-		defer safeConnClose(c, err)
+		defer func(c net.Conn) {
+			safeConnClose(c, err)
+		}(c)
 
 		c, err = v.StreamConn(c, metadata)
 	}
@@ -332,15 +340,15 @@ func parseVmessAddr(metadata *C.Metadata) *vmess.DstAddr {
 	var addr []byte
 	switch metadata.AddrType() {
 	case socks5.AtypIPv4:
-		addrType = byte(vmess.AtypIPv4)
+		addrType = vmess.AtypIPv4
 		addr = make([]byte, net.IPv4len)
 		copy(addr[:], metadata.DstIP.To4())
 	case socks5.AtypIPv6:
-		addrType = byte(vmess.AtypIPv6)
+		addrType = vmess.AtypIPv6
 		addr = make([]byte, net.IPv6len)
 		copy(addr[:], metadata.DstIP.To16())
 	case socks5.AtypDomainName:
-		addrType = byte(vmess.AtypDomainName)
+		addrType = vmess.AtypDomainName
 		addr = make([]byte, len(metadata.Host)+1)
 		addr[0] = byte(len(metadata.Host))
 		copy(addr[1:], []byte(metadata.Host))

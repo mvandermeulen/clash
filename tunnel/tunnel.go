@@ -19,6 +19,8 @@ import (
 	icontext "github.com/Dreamacro/clash/context"
 	"github.com/Dreamacro/clash/log"
 	"github.com/Dreamacro/clash/tunnel/statistic"
+
+	"go.uber.org/atomic"
 )
 
 var (
@@ -35,6 +37,9 @@ var (
 
 	// default timeout for UDP session
 	udpTimeout = 60 * time.Second
+
+	// experimental feature
+	UDPFallbackMatch = atomic.NewBool(false)
 )
 
 func init() {
@@ -171,6 +176,7 @@ func resolveMetadata(ctx C.PlainContext, metadata *C.Metadata) (proxy C.Proxy, r
 func handleUDPConn(packet *inbound.PacketAdapter) {
 	metadata := packet.Metadata()
 	if !metadata.Valid() {
+		packet.Drop()
 		log.Warnln("[Metadata] not valid: %#v", metadata)
 		return
 	}
@@ -183,6 +189,7 @@ func handleUDPConn(packet *inbound.PacketAdapter) {
 	}
 
 	if err := preHandleMetadata(metadata); err != nil {
+		packet.Drop()
 		log.Debugln("[Metadata PreHandle] error: %s", err)
 		return
 	}
@@ -191,8 +198,10 @@ func handleUDPConn(packet *inbound.PacketAdapter) {
 	if !metadata.Resolved() {
 		ips, err := resolver.LookupIP(context.Background(), metadata.Host)
 		if err != nil {
+			packet.Drop()
 			return
 		} else if len(ips) == 0 {
+			packet.Drop()
 			return
 		}
 		metadata.DstIP = ips[0]
@@ -210,6 +219,7 @@ func handleUDPConn(packet *inbound.PacketAdapter) {
 	}
 
 	if handle() {
+		packet.Drop()
 		return
 	}
 
@@ -217,6 +227,8 @@ func handleUDPConn(packet *inbound.PacketAdapter) {
 	cond, loaded := natTable.GetOrCreateLock(lockKey)
 
 	go func() {
+		defer packet.Drop()
+
 		if loaded {
 			cond.L.Lock()
 			cond.Wait()
@@ -407,8 +419,8 @@ func match(metadata *C.Metadata) (C.Proxy, C.Rule, error) {
 				continue
 			}
 
-			if metadata.NetWork == C.UDP && !adapter.SupportUDP() {
-				log.Debugln("%s UDP is not supported", adapter.Name())
+			if metadata.NetWork == C.UDP && !adapter.SupportUDP() && UDPFallbackMatch.Load() {
+				log.Debugln("[Matcher] %s UDP is not supported, skip match", adapter.Name())
 				continue
 			}
 			return adapter, rule, nil
